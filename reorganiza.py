@@ -1,21 +1,58 @@
+#!/usr/bin/env python3
 import os
 import shutil
+import random
+from pathlib import Path
 
-# ajuste estes caminhos conforme sua estrutura
-BASE = r'C:\Users\inaci\TCC COMBATE\data'
-SRC = os.path.join(BASE, 'labels')        # aqui estão hoje imagens e .txt misturados
-IMG_DST = os.path.join(BASE, 'images', 'train')
-LBL_DST = os.path.join(BASE, 'labels', 'train')
+def reorganize(data_root: Path, val_ratio: float = 0.2, seed: int = 42):
+    random.seed(seed)
+    src = data_root / "labels"         # onde estão hoje .jpg + .txt misturados
+    img_train = data_root / "images" / "train"
+    lbl_train = data_root / "labels" / "train"
+    img_val   = data_root / "images" / "val"
+    lbl_val   = data_root / "labels" / "val"
 
-os.makedirs(IMG_DST, exist_ok=True)
-os.makedirs(LBL_DST, exist_ok=True)
+    # Cria as pastas, se não existirem
+    for d in (img_train, lbl_train, img_val, lbl_val):
+        d.mkdir(parents=True, exist_ok=True)
 
-for fn in os.listdir(SRC):
-    src_path = os.path.join(SRC, fn)
-    name, ext = os.path.splitext(fn.lower())
-    if ext in ('.png', '.jpg', '.jpeg', '.bmp'):
-        shutil.move(src_path, os.path.join(IMG_DST, fn))
-    elif ext == '.txt':
-        shutil.move(src_path, os.path.join(LBL_DST, fn))
+    # Lista todos os arquivos .txt (cada um corresponde a uma imagem)
+    txt_files = list(src.glob("*.txt"))
+    stems = [p.stem for p in txt_files]
+    random.shuffle(stems)
 
-print("Movido todas as imagens para images/train e labels para labels/train")
+    n_val = int(len(stems) * val_ratio)
+    val_set = set(stems[:n_val])
+
+    for stem in stems:
+        txt_src = src / f"{stem}.txt"
+        # procura a imagem correspondente em src
+        img_src = None
+        for ext in (".jpg", ".jpeg", ".png", ".bmp"):
+            candidate = src / f"{stem}{ext}"
+            if candidate.exists():
+                img_src = candidate
+                break
+        if img_src is None:
+            print(f"[!] Não achei imagem para '{stem}', pulando.")
+            continue
+
+        # decide destino train vs val
+        if stem in val_set:
+            img_dst = img_val / img_src.name
+            txt_dst = lbl_val / txt_src.name
+        else:
+            img_dst = img_train / img_src.name
+            txt_dst = lbl_train / txt_src.name
+
+        shutil.move(str(img_src), str(img_dst))
+        shutil.move(str(txt_src), str(txt_dst))
+
+    print(f"Dataset reorganizado em:\n"
+          f"  train -> {len(stems)-n_val} pares\n"
+          f"  val   -> {n_val} pares")
+
+if __name__ == "__main__":
+    base = Path(__file__).parent.resolve()
+    data_dir = base / "data"
+    reorganize(data_dir)
